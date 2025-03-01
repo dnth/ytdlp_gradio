@@ -82,6 +82,7 @@ def download_video(url, video_password=None, progress=gr.Progress()):
         'no_warnings': False,
         'progress_hooks': [progress_hook],
         'verbose': is_playlist(url),  # Enable verbose output for playlists
+        'ignoreerrors': True,  # Skip private or unavailable videos in playlists
     }
     
     # Add video password if provided
@@ -106,9 +107,11 @@ def download_video(url, video_password=None, progress=gr.Progress()):
             info_dict = ydl.extract_info(url, download=False)
             
             if 'entries' in info_dict and is_playlist(url):
-                current_video["total"] = len(info_dict['entries'])
+                # Filter out None entries (private/unavailable videos)
+                available_entries = [entry for entry in info_dict['entries'] if entry is not None]
+                current_video["total"] = len(available_entries)
                 current_video["num"] = 1
-                progress(0.02, desc=f"Found {current_video['total']} videos in playlist. Starting downloads...")
+                progress(0.02, desc=f"Found {current_video['total']} available videos in playlist. Starting downloads...")
             
             # Now do the actual download
             info = ydl.extract_info(url, download=True)
@@ -116,17 +119,25 @@ def download_video(url, video_password=None, progress=gr.Progress()):
             # Get the downloaded file path
             if 'entries' in info:  # It's a playlist
                 playlist_title = info.get('title', 'Unknown')
-                entry_count = len(info['entries'])
+                
+                # Count only non-None entries (available videos)
+                available_entries = [entry for entry in info['entries'] if entry is not None]
+                entry_count = len(available_entries)
+                total_entries = len(info['entries'])
+                skipped_count = total_entries - entry_count
                 
                 result_message += f"Playlist title: {playlist_title}\n"
-                result_message += f"Number of videos: {entry_count}\n\n"
+                result_message += f"Number of videos: {entry_count} (downloaded) / {total_entries} (total)\n"
+                if skipped_count > 0:
+                    result_message += f"Skipped {skipped_count} private or unavailable videos\n"
+                result_message += "\n"
                 
                 for i, entry in enumerate(info['entries']):
-                    if entry:  # Some entries might be None if download failed
+                    if entry:  # Some entries might be None if download failed or video is private
                         file_path = os.path.join(output_dir, f"{entry['title']}.{entry['ext']}")
                         result_message += f"{i+1}. {entry['title']} - Downloaded to: {file_path}\n"
                     else:
-                        result_message += f"{i+1}. [Download failed or skipped]\n"
+                        result_message += f"{i+1}. [Private or unavailable video - skipped]\n"
             else:  # It's a single video
                 file_path = os.path.join(output_dir, f"{info['title']}.{info['ext']}")
                 result_message += f"Downloaded to: {file_path}"
@@ -134,8 +145,16 @@ def download_video(url, video_password=None, progress=gr.Progress()):
             progress(1.0, desc="Download complete!")
             
             # Create a notification message
-            if is_playlist(url) and 'entries' in info and len(info['entries']) > 1:
-                notification_msg = f"Download complete! {len(info['entries'])} videos downloaded."
+            if is_playlist(url) and 'entries' in info:
+                available_entries = [entry for entry in info['entries'] if entry is not None]
+                entry_count = len(available_entries)
+                total_entries = len(info['entries'])
+                skipped_count = total_entries - entry_count
+                
+                if skipped_count > 0:
+                    notification_msg = f"Download complete! {entry_count} videos downloaded, {skipped_count} skipped."
+                else:
+                    notification_msg = f"Download complete! {entry_count} videos downloaded."
             else:
                 notification_msg = "Download complete!"
                 
