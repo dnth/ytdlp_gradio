@@ -193,4 +193,4 @@ with gr.Blocks(title="Video Downloader") as app:
     )
 
 if __name__ == "__main__":
-    app.launch() 
+    app.launch(inbrowser=True) 
