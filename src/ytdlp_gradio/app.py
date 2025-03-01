@@ -2,7 +2,7 @@ import os
 import gradio as gr
 import yt_dlp
 import re
-import time
+import platform
 
 def is_vimeo_url(url):
     """Check if the URL is from Vimeo"""
@@ -47,11 +47,19 @@ def download_video(url, video_password=None, audio_only=False, progress=gr.Progr
     # Set format based on audio_only flag
     if audio_only:
         format_option = "bestaudio"
-        # Try mp3 first, will fall back to m4a if there's an error
-        file_extension = "mp3"
+        
+        # Use m4a on Windows, mp3 on other platforms
+        is_windows = platform.system().lower() == "windows"
+        if is_windows:
+            file_extension = "m4a"
+            preferred_codec = "m4a"
+        else:
+            file_extension = "mp3"
+            preferred_codec = "mp3"
+            
         post_processors = [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
+            'preferredcodec': preferred_codec,
             'preferredquality': '192',
         }]
     else:
