@@ -166,7 +166,7 @@ def download_video(url, video_password=None, audio_only=False, progress=gr.Progr
             # Check for audio conversion failure
             error_str = str(e).lower()
             if audio_only and ("mp3" in error_str or "audio conversion failed" in error_str or 
-                              "ffmpeg not found" in error_str or "postprocessor" in error_str):
+                              "Encoder not found" in error_str or "postprocessor" in error_str):
                 progress(0.1, desc="MP3 conversion failed, trying M4A format instead...")
                 # Update options to use m4a
                 ydl_opts['postprocessors'][0]['preferredcodec'] = 'm4a'
