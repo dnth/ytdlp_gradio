@@ -100,11 +100,27 @@ class DownloadManager:
         if d['status'] == 'downloading':
             filename = d.get('filename', '').split('/')[-1]
             
+            # Extract the title from the filename (remove extension)
+            title = os.path.splitext(filename)[0]
+            # Further clean up the title by removing any format identifiers
+            # This helps with files that have format info like "video.f137.mp4"
+            title = re.sub(r'\.f\d+$', '', title)
+            
             # For playlists, show which video is being downloaded
             prefix = ""
             if is_playlist(self.config.url) and self.current_video["total"] > 1:
+                # Initialize title_seen set if it doesn't exist
+                if not hasattr(self, 'title_seen'):
+                    self.title_seen = set()
+                    
+                # Check if this is a new title we haven't seen before
+                if title not in self.title_seen:
+                    self.title_seen.add(title)
+                    # Update the counter to match the number of unique titles
+                    self.current_video["num"] = len(self.title_seen)
+                
                 prefix = f"Video {self.current_video['num']}/{self.current_video['total']}: "
-                self.current_video["title"] = filename
+                self.current_video["title"] = title
             
             if d.get('total_bytes'):
                 percentage = d['downloaded_bytes'] / d['total_bytes']
@@ -127,10 +143,15 @@ class DownloadManager:
                 else:
                     self.progress(None, desc=f"{prefix}Downloading: {filename} ({d['downloaded_bytes'] / 1024 / 1024:.1f} MB)")
         elif d['status'] == 'finished':
+            filename = d.get('filename', '').split('/')[-1]
+            title = os.path.splitext(filename)[0]
+            title = re.sub(r'\.f\d+$', '', title)
+            
             if is_playlist(self.config.url) and self.current_video["total"] > 1:
+                # Don't increment the counter here, as we do it in the downloading status
+                # based on unique titles
                 self.progress(self.current_video['num'] / self.current_video['total'], 
                          desc=f"Video {self.current_video['num']}/{self.current_video['total']} complete, processing...")
-                self.current_video["num"] += 1
             else:
                 self.progress(1.0, desc="Download complete, processing file...")
     
@@ -195,8 +216,15 @@ class DownloadManager:
             if 'entries' in info_dict and is_playlist(self.config.url):
                 # Filter out None entries (private/unavailable videos)
                 available_entries = [entry for entry in info_dict['entries'] if entry is not None]
-                self.current_video["total"] = len(available_entries)
+                
+                # Count unique video titles to avoid counting multiple formats of the same video
+                unique_titles = set(entry.get('title', '') for entry in available_entries if entry)
+                self.current_video["total"] = len(unique_titles)
                 self.current_video["num"] = 1
+                
+                # Create a mapping of titles to track which videos we've seen
+                self.title_seen = set()
+                
                 self.progress(0.02, desc=f"Found {self.current_video['total']} available videos in playlist. Starting downloads...")
             
             # Now do the actual download
@@ -216,9 +244,12 @@ class DownloadManager:
         
         # Count only non-None entries (available videos)
         available_entries = [entry for entry in info['entries'] if entry is not None]
-        entry_count = len(available_entries)
+        
+        # Count unique video titles to avoid counting multiple parts of the same video
+        unique_titles = set(entry.get('title', '') for entry in available_entries if entry)
+        entry_count = len(unique_titles)
         total_entries = len(info['entries'])
-        skipped_count = total_entries - entry_count
+        skipped_count = total_entries - len(available_entries)
         
         result = f"Playlist title: {playlist_title}\n"
         result += f"Number of {'audio tracks' if self.config.audio_only else 'videos'}: {entry_count} (downloaded) / {total_entries} (total)\n"
@@ -244,9 +275,12 @@ class DownloadManager:
         """Create a notification message based on download results"""
         if is_playlist(self.config.url) and 'entries' in info:
             available_entries = [entry for entry in info['entries'] if entry is not None]
-            entry_count = len(available_entries)
+            
+            # Count unique video titles
+            unique_titles = set(entry.get('title', '') for entry in available_entries if entry)
+            entry_count = len(unique_titles)
             total_entries = len(info['entries'])
-            skipped_count = total_entries - entry_count
+            skipped_count = total_entries - len(available_entries)
             
             if skipped_count > 0:
                 return f"Download complete! {entry_count} {'audio tracks' if self.config.audio_only else 'videos'} downloaded, {skipped_count} skipped."
