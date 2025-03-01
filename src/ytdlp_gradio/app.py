@@ -271,23 +271,26 @@ with gr.Blocks(title="Video Downloader") as app:
             # Audio only checkbox
             audio_only_checkbox = gr.Checkbox(label="Download audio only (MP3/M4A)", value=False)
             
-            download_button = gr.Button("Download")
+            download_button = gr.Button("Download", variant="primary", interactive=False)
         
         with gr.Column():
             output = gr.Textbox(label="Result", lines=10)  # Increased lines for more verbose output
     
     # Function to check URL and show password field if it's a Vimeo URL
     def check_url_type(url):
-        if is_vimeo_url(url):
-            return gr.update(visible=True)
-        else:
-            return gr.update(visible=False)
+        # Check if URL is empty to control download button state
+        button_state = len(url.strip()) > 0
+        
+        # Check if it's a Vimeo URL to control password field visibility
+        password_visible = is_vimeo_url(url)
+        
+        return gr.update(visible=password_visible), gr.update(interactive=button_state)
     
-    # Update password field visibility when URL changes
+    # Update password field visibility and button state when URL changes
     url_input.change(
         fn=check_url_type,
         inputs=url_input,
-        outputs=password_input
+        outputs=[password_input, download_button]
     )
     
     # Download button
