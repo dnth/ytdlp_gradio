@@ -47,6 +47,7 @@ def download_video(url, video_password=None, audio_only=False, progress=gr.Progr
     # Set format based on audio_only flag
     if audio_only:
         format_option = "bestaudio"
+        # Try mp3 first, will fall back to m4a if there's an error
         file_extension = "mp3"
         post_processors = [{
             'key': 'FFmpegExtractAudio',
@@ -119,66 +120,119 @@ def download_video(url, video_password=None, audio_only=False, progress=gr.Progr
             result_message = ""
             
         # Download the video
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # First extract info without downloading to get total count for playlists
-            info_dict = ydl.extract_info(url, download=False)
-            
-            if 'entries' in info_dict and is_playlist(url):
-                # Filter out None entries (private/unavailable videos)
-                available_entries = [entry for entry in info_dict['entries'] if entry is not None]
-                current_video["total"] = len(available_entries)
-                current_video["num"] = 1
-                progress(0.02, desc=f"Found {current_video['total']} available videos in playlist. Starting downloads...")
-            
-            # Now do the actual download
-            info = ydl.extract_info(url, download=True)
-            
-            # Get the downloaded file path
-            if 'entries' in info:  # It's a playlist
-                playlist_title = info.get('title', 'Unknown')
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # First extract info without downloading to get total count for playlists
+                info_dict = ydl.extract_info(url, download=False)
                 
-                # Count only non-None entries (available videos)
-                available_entries = [entry for entry in info['entries'] if entry is not None]
-                entry_count = len(available_entries)
-                total_entries = len(info['entries'])
-                skipped_count = total_entries - entry_count
+                if 'entries' in info_dict and is_playlist(url):
+                    # Filter out None entries (private/unavailable videos)
+                    available_entries = [entry for entry in info_dict['entries'] if entry is not None]
+                    current_video["total"] = len(available_entries)
+                    current_video["num"] = 1
+                    progress(0.02, desc=f"Found {current_video['total']} available videos in playlist. Starting downloads...")
                 
-                result_message += f"Playlist title: {playlist_title}\n"
-                result_message += f"Number of {'audio tracks' if audio_only else 'videos'}: {entry_count} (downloaded) / {total_entries} (total)\n"
-                if skipped_count > 0:
-                    result_message += f"Skipped {skipped_count} private or unavailable items\n"
-                result_message += "\n"
+                # Now do the actual download
+                info = ydl.extract_info(url, download=True)
                 
-                for i, entry in enumerate(info['entries']):
-                    if entry:  # Some entries might be None if download failed or video is private
-                        ext = "mp3" if audio_only else "mp4"
-                        file_path = os.path.join(output_dir, f"{entry['title']}.{ext}")
-                        result_message += f"{i+1}. {entry['title']} - Downloaded to: {file_path}\n"
-                    else:
-                        result_message += f"{i+1}. [Private or unavailable item - skipped]\n"
-            else:  # It's a single video
-                ext = "mp3" if audio_only else "mp4"
-                file_path = os.path.join(output_dir, f"{info['title']}.{ext}")
-                result_message += f"Downloaded to: {file_path}"
-            
-            progress(1.0, desc="Download complete!")
-            
-            # Create a notification message
-            if is_playlist(url) and 'entries' in info:
-                available_entries = [entry for entry in info['entries'] if entry is not None]
-                entry_count = len(available_entries)
-                total_entries = len(info['entries'])
-                skipped_count = total_entries - entry_count
+                # Get the downloaded file path
+                if 'entries' in info:  # It's a playlist
+                    playlist_title = info.get('title', 'Unknown')
+                    
+                    # Count only non-None entries (available videos)
+                    available_entries = [entry for entry in info['entries'] if entry is not None]
+                    entry_count = len(available_entries)
+                    total_entries = len(info['entries'])
+                    skipped_count = total_entries - entry_count
+                    
+                    result_message += f"Playlist title: {playlist_title}\n"
+                    result_message += f"Number of {'audio tracks' if audio_only else 'videos'}: {entry_count} (downloaded) / {total_entries} (total)\n"
+                    if skipped_count > 0:
+                        result_message += f"Skipped {skipped_count} private or unavailable items\n"
+                    result_message += "\n"
+                    
+                    for i, entry in enumerate(info['entries']):
+                        if entry:  # Some entries might be None if download failed or video is private
+                            ext = file_extension if audio_only else "mp4"
+                            file_path = os.path.join(output_dir, f"{entry['title']}.{ext}")
+                            result_message += f"{i+1}. {entry['title']} - Downloaded to: {file_path}\n"
+                        else:
+                            result_message += f"{i+1}. [Private or unavailable item - skipped]\n"
+                else:  # It's a single video
+                    ext = file_extension if audio_only else "mp4"
+                    file_path = os.path.join(output_dir, f"{info['title']}.{ext}")
+                    result_message += f"Downloaded to: {file_path}"
+        except Exception as e:
+            # If mp3 fails, try m4a instead
+            if audio_only and "mp3" in str(e).lower():
+                progress(0.1, desc="MP3 conversion failed, trying M4A format instead...")
+                # Update options to use m4a
+                ydl_opts['postprocessors'][0]['preferredcodec'] = 'm4a'
+                file_extension = "m4a"
                 
-                if skipped_count > 0:
-                    notification_msg = f"Download complete! {entry_count} {'audio tracks' if audio_only else 'videos'} downloaded, {skipped_count} skipped."
-                else:
-                    notification_msg = f"Download complete! {entry_count} {'audio tracks' if audio_only else 'videos'} downloaded."
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # First extract info without downloading to get total count for playlists
+                    info_dict = ydl.extract_info(url, download=False)
+                    
+                    if 'entries' in info_dict and is_playlist(url):
+                        # Filter out None entries (private/unavailable videos)
+                        available_entries = [entry for entry in info_dict['entries'] if entry is not None]
+                        current_video["total"] = len(available_entries)
+                        current_video["num"] = 1
+                        progress(0.02, desc=f"Found {current_video['total']} available videos in playlist. Starting downloads...")
+                    
+                    # Now do the actual download
+                    info = ydl.extract_info(url, download=True)
+                    
+                    # Get the downloaded file path
+                    if 'entries' in info:  # It's a playlist
+                        playlist_title = info.get('title', 'Unknown')
+                        
+                        # Count only non-None entries (available videos)
+                        available_entries = [entry for entry in info['entries'] if entry is not None]
+                        entry_count = len(available_entries)
+                        total_entries = len(info['entries'])
+                        skipped_count = total_entries - entry_count
+                        
+                        result_message += f"Playlist title: {playlist_title}\n"
+                        result_message += f"Number of audio tracks: {entry_count} (downloaded) / {total_entries} (total)\n"
+                        result_message += f"Note: Using M4A format instead of MP3 for better compatibility\n"
+                        if skipped_count > 0:
+                            result_message += f"Skipped {skipped_count} private or unavailable items\n"
+                        result_message += "\n"
+                        
+                        for i, entry in enumerate(info['entries']):
+                            if entry:  # Some entries might be None if download failed or video is private
+                                file_path = os.path.join(output_dir, f"{entry['title']}.m4a")
+                                result_message += f"{i+1}. {entry['title']} - Downloaded to: {file_path}\n"
+                            else:
+                                result_message += f"{i+1}. [Private or unavailable item - skipped]\n"
+                    else:  # It's a single video
+                        file_path = os.path.join(output_dir, f"{info['title']}.m4a")
+                        result_message += f"Downloaded to: {file_path}\n"
+                        result_message += f"Note: Using M4A format instead of MP3 for better compatibility"
             else:
-                notification_msg = "Download complete!"
-                
-            # Return both the result message and notification
-            return result_message, gr.Success(notification_msg)
+                # Re-raise the exception if it's not related to mp3 conversion
+                raise
+        
+        progress(1.0, desc="Download complete!")
+        
+        # Create a notification message
+        if is_playlist(url) and 'entries' in info:
+            available_entries = [entry for entry in info['entries'] if entry is not None]
+            entry_count = len(available_entries)
+            total_entries = len(info['entries'])
+            skipped_count = total_entries - entry_count
+            
+            if skipped_count > 0:
+                notification_msg = f"Download complete! {entry_count} {'audio tracks' if audio_only else 'videos'} downloaded, {skipped_count} skipped."
+            else:
+                notification_msg = f"Download complete! {entry_count} {'audio tracks' if audio_only else 'videos'} downloaded."
+        else:
+            notification_msg = "Download complete!"
+            
+        # Return both the result message and notification
+        return result_message, gr.Success(notification_msg)
     except Exception as e:
         error_message = f"Error: {str(e)}"
         if is_playlist(url):
@@ -205,7 +259,7 @@ with gr.Blocks(title="Video Downloader") as app:
             )
             
             # Audio only checkbox
-            audio_only_checkbox = gr.Checkbox(label="Download audio only (MP3)", value=False)
+            audio_only_checkbox = gr.Checkbox(label="Download audio only (MP3/M4A)", value=False)
             
             download_button = gr.Button("Download")
         

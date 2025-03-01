@@ -21,4 +21,3 @@ start = "python -m src.ytdlp_gradio.app"
 
 [tool.pixi.dependencies]
 ffmpeg = ">=7.1.0,<8"
-lame = ">=3.100,<4"
