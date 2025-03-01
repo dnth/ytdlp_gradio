@@ -22,13 +22,14 @@ def is_playlist(url):
         return True
     return False
 
-def download_video(url, video_password=None, progress=gr.Progress()):
+def download_video(url, video_password=None, audio_only=False, progress=gr.Progress()):
     """
     Download a video using yt-dlp
     
     Args:
         url: URL of the video to download
         video_password: Password for protected videos (e.g., Vimeo)
+        audio_only: Whether to download only the audio
         progress: Gradio progress bar
         
     Returns:
@@ -43,8 +44,22 @@ def download_video(url, video_password=None, progress=gr.Progress()):
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
-    # Always use bestvideo+bestaudio for best quality
-    format_option = "bestvideo+bestaudio"
+    # Set format based on audio_only flag
+    if audio_only:
+        format_option = "bestaudio"
+        file_extension = "mp3"
+        post_processors = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }]
+    else:
+        format_option = "bestvideo+bestaudio"
+        file_extension = "mp4"
+        post_processors = [{
+            'key': 'FFmpegVideoConvertor',
+            'preferedformat': 'mp4',
+        }]
     
     # Track current video number for playlists
     current_video = {"num": 0, "total": 1, "title": ""}
@@ -83,6 +98,8 @@ def download_video(url, video_password=None, progress=gr.Progress()):
         'progress_hooks': [progress_hook],
         'verbose': is_playlist(url),  # Enable verbose output for playlists
         'ignoreerrors': True,  # Skip private or unavailable videos in playlists
+        'postprocessors': post_processors,
+        'merge_output_format': 'mp4' if not audio_only else None,  # Ensure merged formats are mp4
     }
     
     # Add video password if provided
@@ -96,7 +113,7 @@ def download_video(url, video_password=None, progress=gr.Progress()):
         if is_playlist(url):
             playlist_type = "Vimeo showcase" if is_vimeo_showcase(url) else "YouTube playlist"
             progress(0.01, desc=f"Processing {playlist_type} - this may take longer...")
-            result_message = f"Downloading from {playlist_type}:\n\n"
+            result_message = f"Downloading from {playlist_type} ({('audio only' if audio_only else 'video')}:\n\n"
         else:
             progress(0.01, desc="Extracting video information...")
             result_message = ""
@@ -127,19 +144,21 @@ def download_video(url, video_password=None, progress=gr.Progress()):
                 skipped_count = total_entries - entry_count
                 
                 result_message += f"Playlist title: {playlist_title}\n"
-                result_message += f"Number of videos: {entry_count} (downloaded) / {total_entries} (total)\n"
+                result_message += f"Number of {'audio tracks' if audio_only else 'videos'}: {entry_count} (downloaded) / {total_entries} (total)\n"
                 if skipped_count > 0:
-                    result_message += f"Skipped {skipped_count} private or unavailable videos\n"
+                    result_message += f"Skipped {skipped_count} private or unavailable items\n"
                 result_message += "\n"
                 
                 for i, entry in enumerate(info['entries']):
                     if entry:  # Some entries might be None if download failed or video is private
-                        file_path = os.path.join(output_dir, f"{entry['title']}.{entry['ext']}")
+                        ext = "mp3" if audio_only else "mp4"
+                        file_path = os.path.join(output_dir, f"{entry['title']}.{ext}")
                         result_message += f"{i+1}. {entry['title']} - Downloaded to: {file_path}\n"
                     else:
-                        result_message += f"{i+1}. [Private or unavailable video - skipped]\n"
+                        result_message += f"{i+1}. [Private or unavailable item - skipped]\n"
             else:  # It's a single video
-                file_path = os.path.join(output_dir, f"{info['title']}.{info['ext']}")
+                ext = "mp3" if audio_only else "mp4"
+                file_path = os.path.join(output_dir, f"{info['title']}.{ext}")
                 result_message += f"Downloaded to: {file_path}"
             
             progress(1.0, desc="Download complete!")
@@ -152,9 +171,9 @@ def download_video(url, video_password=None, progress=gr.Progress()):
                 skipped_count = total_entries - entry_count
                 
                 if skipped_count > 0:
-                    notification_msg = f"Download complete! {entry_count} videos downloaded, {skipped_count} skipped."
+                    notification_msg = f"Download complete! {entry_count} {'audio tracks' if audio_only else 'videos'} downloaded, {skipped_count} skipped."
                 else:
-                    notification_msg = f"Download complete! {entry_count} videos downloaded."
+                    notification_msg = f"Download complete! {entry_count} {'audio tracks' if audio_only else 'videos'} downloaded."
             else:
                 notification_msg = "Download complete!"
                 
@@ -171,7 +190,7 @@ def download_video(url, video_password=None, progress=gr.Progress()):
 # Create the Gradio interface
 with gr.Blocks(title="Video Downloader") as app:
     gr.Markdown("# Video Downloader")
-    gr.Markdown("Enter a video URL to download (always uses best video and audio quality)")
+    gr.Markdown("Enter a video URL to download (uses best quality by default)")
     
     with gr.Row():
         with gr.Column():
@@ -184,6 +203,9 @@ with gr.Blocks(title="Video Downloader") as app:
                 type="password",
                 visible=False
             )
+            
+            # Audio only checkbox
+            audio_only_checkbox = gr.Checkbox(label="Download audio only (MP3)", value=False)
             
             download_button = gr.Button("Download")
         
@@ -207,7 +229,7 @@ with gr.Blocks(title="Video Downloader") as app:
     # Download button
     download_button.click(
         fn=download_video,
-        inputs=[url_input, password_input],
+        inputs=[url_input, password_input, audio_only_checkbox],
         outputs=[output]
     )
 
